@@ -1,0 +1,40 @@
+# Databricks
+.databricks/
+*.dbc
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Jupyter / Databricks notebooks
+.ipynb_checkpoints/
+*.nbconvert.*
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Secrets and environment variables
+.env
+.env.local
+*.pem
+*.key
+
+# Data files — never commit raw data to git
+data/
+*.csv
+*.parquet
