@@ -2,7 +2,7 @@
   <img src="docs/architecture_diagram.png" alt="RAG & MCP Agents Architecture" width="700"/>
 </p>
 
-<h1 align="center">Databricks RAG & MCP Agents — Insurance Domain</h1>
+<h1 align="center">Databricks RAG & MCP Agents</h1>
 
 <p align="center">
   <em>A production-style RAG chatbot and MCP tool-calling agent built on Databricks, Unity Catalog,
