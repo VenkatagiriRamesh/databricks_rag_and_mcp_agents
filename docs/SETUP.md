@@ -61,9 +61,17 @@ and writes `insurance_rag_agent.docs.policy_documents`. Validation cell prints 5
 2. Confirm you can see Foundation Model API endpoints, typically including a chat model (e.g.
    `databricks-meta-llama-3-3-70b-instruct`) and an embedding model
    (`databricks-gte-large-en`, already used in step 6).
-3. If the exact chat model name in `src/03_rag_chain_and_deploy`'s config cell isn't listed,
-   swap `CHAT_MODEL_ENDPOINT` for whichever chat model your workspace shows — the rest of the
-   notebook doesn't need to change.
+3. Click into the chat model and open its **"Use this model"** / query-example panel and copy
+   its exact `model=` and `base_url=` values — they vary by workspace. Two patterns we've seen:
+   - **AI Gateway / Unity-Catalog-governed** (this project was verified on a workspace like
+     this): `model="insurance_rag_agent.agent_tools.meta-llama-3-3-70b-instruct_backend"`,
+     `base_url="https://<workspace-host>/ai-gateway/mlflow/v1"`.
+   - **Classic Foundation Model API**: `model="databricks-meta-llama-3-3-70b-instruct"`,
+     `base_url="https://<workspace-host>/serving-endpoints"`.
+4. In `src/03_rag_chain_and_deploy` and `src/05_mcp_tool_calling_agent`, set `CHAT_MODEL_ENDPOINT`
+   to the `model=` value and `MODEL_QUERY_BASE_PATH` to whatever comes after the host in the
+   `base_url=` value (e.g. `/ai-gateway/mlflow/v1` or `/serving-endpoints`) from your workspace's
+   snippet — both notebooks build the OpenAI client from these two constants.
 
 ## 8. Run `src/03_rag_chain_and_deploy`
 
