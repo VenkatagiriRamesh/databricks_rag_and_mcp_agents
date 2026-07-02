@@ -1,8 +1,9 @@
 # Full Setup Guide — Databricks RAG & MCP Agents
 
-Step-by-step instructions to stand up this project from scratch on **Databricks Free
-Edition**. Follow the notebooks in order — each one is idempotent, so re-running a step after
-fixing a mistake is safe.
+Click-by-click instructions to stand this project up from a blank Databricks Free Edition
+workspace. Follow the notebooks in order — each one is idempotent, so if something goes
+wrong partway through, just fix it and re-run from that notebook. You won't end up with
+duplicate tables or half-created endpoints.
 
 ## 1. Get a Databricks Free Edition workspace
 
@@ -92,23 +93,26 @@ and writes `insurance_rag_agent.docs.policy_documents`. Validation cell prints 5
 
 ## 9. Run `src/04_agent_tools_mcp_functions`
 
-Run top-to-bottom. This registers the 3 UC SQL functions and prints the managed MCP endpoint
-URL, e.g.:
+Run top-to-bottom. This registers all ten UC SQL functions — the RAG answerer, the
+`list_report_types` menu, the seven report generators, and the classifier — and prints the
+managed MCP endpoint URL, e.g.:
 
 ```
 https://<your-workspace-host>/api/2.0/mcp/functions/insurance_rag_agent/agent_tools
 ```
 
-The validation cell calls `classify_customer` and `generate_analysis_report` directly via SQL
-— confirm both return sensible text before moving on.
+The validation cell calls `list_report_types`, `classify_customer`, and
+`generate_smoker_comparison_report` directly via SQL — confirm all three return sensible text
+before moving on.
 
 ## 10. Run `src/05_mcp_agent_deploy`
 
-1. Run top-to-bottom. The local smoke-test cell instantiates the agent and runs the 3 demo
+1. Run top-to-bottom. The local smoke-test cell instantiates the agent and runs 4 demo
    prompts directly in the notebook — confirm the model calls `ask_insurance_rag` for the
-   first prompt, `generate_analysis_report` for the second, and `classify_customer` for the
-   third (a different tool getting called is a model reasoning choice, not a bug — try
-   rephrasing the prompt to be more explicit, e.g. "generate a report" vs. "tell me about").
+   first prompt, `list_report_types` for the second (it should read back the numbered menu
+   rather than just generating something), `generate_smoker_comparison_report` for the third,
+   and `classify_customer` for the fourth. A different tool getting called is a model
+   reasoning choice, not a bug — try rephrasing the prompt to be more explicit if it happens.
 2. The logging/registration cell resolves the MCP server's underlying resources via
    `DatabricksMCPClient().get_databricks_resources(...)` and declares them (plus the chat
    model) as `resources`, then registers `insurance_rag_agent.agent_tools.insurance_mcp_agent`
@@ -116,15 +120,16 @@ The validation cell calls `classify_customer` and `generate_analysis_report` dir
 3. The deploy cell calls `agents.deploy(...)`, provisioning a real serving endpoint named
    `insurance_mcp_agent_endpoint`. **This can take 10-15 minutes** the first time. Track
    progress in **Serving > insurance_mcp_agent_endpoint**.
-4. Once the endpoint shows **Ready**, the final validation cell re-runs the same 3 prompts
+4. Once the endpoint shows **Ready**, the final validation cell re-runs the same 4 prompts
    against the *deployed* service (not the local instance) to prove it works end-to-end.
 5. **Try it in Playground:** go to **Serving > insurance_mcp_agent_endpoint > Open in
-   Playground** and chat with the agent directly — ask it a question, ask for a report, or
-   describe an applicant to classify.
+   Playground** and chat with the agent directly. Ask it something like "I want a report" and
+   watch it come back with the numbered menu instead of just picking one for you — that's the
+   behavior the system prompt is enforcing.
 6. **Bonus, no deployment needed:** in **Playground**, pick any tools-enabled model, then
    **Tools > + Add tool > MCP > Managed MCP servers**, and enter the `insurance_rag_agent`
-   catalog / `agent_tools` schema — Playground auto-discovers the 3 UC functions as tools you
-   can call directly, without the agent endpoint at all.
+   catalog / `agent_tools` schema — Playground auto-discovers all ten UC functions as tools
+   you can call directly, without the agent endpoint at all.
 
 > **Free Edition quota:** this project now runs 3 endpoints at once (`insurance_rag_endpoint`,
 > `insurance_mcp_agent_endpoint`, and the Vector Search endpoint). If deploying the agent hits
@@ -151,4 +156,5 @@ demoing:
 | `NameError: name 'deployment_info' is not defined` | Notebook session restarted/reattached after a successful deploy, wiping in-memory variables | You don't need to redeploy — just re-run the config cell, then the final validation cell, which key off the static `RAG_ENDPOINT_NAME` / `AGENT_ENDPOINT_NAME` constants instead |
 | `OpenAIError: Missing credentials` | `w.config.token` is empty under this workspace's OAuth auth | Already handled in these notebooks via `w.config.authenticate()` / `resources=` — if you see this in your own code, use one of those instead of `.config.token` |
 | `ask_insurance_rag` returns an error string | RAG endpoint not `Ready` yet, or endpoint name mismatch | Check **Serving** status; confirm `RAG_ENDPOINT_NAME` in `03` matches what `04`'s function calls |
-| MCP client can't list tools | Wrong workspace host, or `agent_tools` schema empty | Re-check `mcp_server_url` printed in notebook `04`; confirm the 3 functions exist via `SHOW FUNCTIONS IN insurance_rag_agent.agent_tools` |
+| MCP client can't list tools | Wrong workspace host, or `agent_tools` schema empty | Re-check `mcp_server_url` printed in notebook `04`; confirm all ten functions exist via `SHOW FUNCTIONS IN insurance_rag_agent.agent_tools` |
+| Agent picks a report without asking, or picks the wrong one | System prompt not being followed, or the prompt wasn't ambiguous enough to trigger the menu | Try a more open-ended prompt ("I need a report" rather than naming a topic); if it's still skipping the menu, double-check `SYSTEM_PROMPT` made it into the deployed model (redeploy `05` after any change) |
