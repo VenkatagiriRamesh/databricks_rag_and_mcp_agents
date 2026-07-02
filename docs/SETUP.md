@@ -68,7 +68,7 @@ and writes `insurance_rag_agent.docs.policy_documents`. Validation cell prints 5
      `base_url="https://<workspace-host>/ai-gateway/mlflow/v1"`.
    - **Classic Foundation Model API**: `model="databricks-meta-llama-3-3-70b-instruct"`,
      `base_url="https://<workspace-host>/serving-endpoints"`.
-4. In `src/03_rag_chain_and_deploy` and `src/05_mcp_tool_calling_agent`, set `CHAT_MODEL_ENDPOINT`
+4. In `src/03_rag_chain_and_deploy` and `src/05_mcp_agent_deploy`, set `CHAT_MODEL_ENDPOINT`
    to the `model=` value and `MODEL_QUERY_BASE_PATH` to whatever comes after the host in the
    `base_url=` value (e.g. `/ai-gateway/mlflow/v1` or `/serving-endpoints`) from your workspace's
    snippet — both notebooks build the OpenAI client from these two constants.
@@ -77,12 +77,15 @@ and writes `insurance_rag_agent.docs.policy_documents`. Validation cell prints 5
 
 1. Run top-to-bottom. The local smoke-test cell calls the retriever + chat model directly and
    prints an answer — confirm this looks reasonable before continuing.
-2. The logging/registration cell registers `insurance_rag_agent.agent_tools.insurance_rag_model`
-   in Unity Catalog.
+2. The logging/registration cell declares the vector index and chat model as `resources` and
+   registers `insurance_rag_agent.agent_tools.insurance_rag_model` in Unity Catalog — this
+   auto-provisions scoped credentials for the deployed agent, so there's no manual token step.
 3. The deploy cell calls `agents.deploy(...)`, which provisions a real serving endpoint named
    `insurance_rag_endpoint`. **This can take 10-15 minutes** the first time (endpoint cold
    start). Track progress in **Serving > insurance_rag_endpoint**.
 4. Once the endpoint shows **Ready**, the final validation cell queries it live.
+5. **Try it in Playground:** go to **Serving > insurance_rag_endpoint > Open in Playground**
+   and chat with it directly — no extra code needed.
 
 > **Free Edition quota:** model serving is quota-limited per account. If you hit a quota error,
 > delete unused serving endpoints (**Serving > select endpoint > Delete**) before retrying.
@@ -99,15 +102,33 @@ https://<your-workspace-host>/api/2.0/mcp/functions/insurance_rag_agent/agent_to
 The validation cell calls `classify_customer` and `generate_analysis_report` directly via SQL
 — confirm both return sensible text before moving on.
 
-## 10. Run `src/05_mcp_tool_calling_agent`
+## 10. Run `src/05_mcp_agent_deploy`
 
-1. Run top-to-bottom. No extra credentials are needed inside a Databricks notebook — the
-   `WorkspaceClient()` and `DatabricksMCPClient` both pick up the notebook's own auth context
-   automatically.
-2. Watch the printed transcript: the model should call `ask_insurance_rag` for the first
-   prompt, `generate_analysis_report` for the second, and `classify_customer` for the third.
-3. If a different tool is called than expected, that's a model reasoning choice, not a bug —
-   try rephrasing the prompt to be more explicit (e.g. "generate a report" vs. "tell me about").
+1. Run top-to-bottom. The local smoke-test cell instantiates the agent and runs the 3 demo
+   prompts directly in the notebook — confirm the model calls `ask_insurance_rag` for the
+   first prompt, `generate_analysis_report` for the second, and `classify_customer` for the
+   third (a different tool getting called is a model reasoning choice, not a bug — try
+   rephrasing the prompt to be more explicit, e.g. "generate a report" vs. "tell me about").
+2. The logging/registration cell resolves the MCP server's underlying resources via
+   `DatabricksMCPClient().get_databricks_resources(...)` and declares them (plus the chat
+   model) as `resources`, then registers `insurance_rag_agent.agent_tools.insurance_mcp_agent`
+   in Unity Catalog.
+3. The deploy cell calls `agents.deploy(...)`, provisioning a real serving endpoint named
+   `insurance_mcp_agent_endpoint`. **This can take 10-15 minutes** the first time. Track
+   progress in **Serving > insurance_mcp_agent_endpoint**.
+4. Once the endpoint shows **Ready**, the final validation cell re-runs the same 3 prompts
+   against the *deployed* service (not the local instance) to prove it works end-to-end.
+5. **Try it in Playground:** go to **Serving > insurance_mcp_agent_endpoint > Open in
+   Playground** and chat with the agent directly — ask it a question, ask for a report, or
+   describe an applicant to classify.
+6. **Bonus, no deployment needed:** in **Playground**, pick any tools-enabled model, then
+   **Tools > + Add tool > MCP > Managed MCP servers**, and enter the `insurance_rag_agent`
+   catalog / `agent_tools` schema — Playground auto-discovers the 3 UC functions as tools you
+   can call directly, without the agent endpoint at all.
+
+> **Free Edition quota:** this project now runs 3 endpoints at once (`insurance_rag_endpoint`,
+> `insurance_mcp_agent_endpoint`, and the Vector Search endpoint). If deploying the agent hits
+> a quota error, delete an unused serving endpoint first, then retry.
 
 ## 11. Clean up (optional, recommended on Free Edition)
 
@@ -115,9 +136,10 @@ Free Edition quotas are account-wide and shared across everything you build. Whe
 demoing:
 
 1. **Serving > insurance_rag_endpoint > Delete** — stops the deployed RAG endpoint.
-2. **Vector Search > your endpoint > Delete index / Delete endpoint** if you won't need it
+2. **Serving > insurance_mcp_agent_endpoint > Delete** — stops the deployed MCP agent endpoint.
+3. **Vector Search > your endpoint > Delete index / Delete endpoint** if you won't need it
    again soon (recreating it later just means re-running `02`).
-3. Catalog/tables can stay — they cost storage, not compute, and are cheap to keep.
+4. Catalog/tables can stay — they cost storage, not compute, and are cheap to keep.
 
 ## Troubleshooting
 
@@ -125,6 +147,8 @@ demoing:
 |---------|-------------|-----|
 | `CREATE VOLUME` fails | Catalog/schema not created yet | Re-run the config cell in notebook `00` first |
 | Similarity search returns nothing | Index still syncing | Wait a few minutes, re-run the validation cell |
-| `agents.deploy()` hangs / errors | Free Edition model-serving quota reached | Delete other serving endpoints, retry |
+| `agents.deploy()` hangs / errors, or `InvalidParameterValue: Scale to zero must be enabled` | Free Edition requires `scale_to_zero=True`, or model-serving quota reached | Confirm `scale_to_zero=True` is set in the deploy cell; if it's a quota error, delete an unused serving endpoint (`insurance_rag_endpoint`, `insurance_mcp_agent_endpoint`, or the Vector Search endpoint) and retry |
+| `NameError: name 'deployment_info' is not defined` | Notebook session restarted/reattached after a successful deploy, wiping in-memory variables | You don't need to redeploy — just re-run the config cell, then the final validation cell, which key off the static `RAG_ENDPOINT_NAME` / `AGENT_ENDPOINT_NAME` constants instead |
+| `OpenAIError: Missing credentials` | `w.config.token` is empty under this workspace's OAuth auth | Already handled in these notebooks via `w.config.authenticate()` / `resources=` — if you see this in your own code, use one of those instead of `.config.token` |
 | `ask_insurance_rag` returns an error string | RAG endpoint not `Ready` yet, or endpoint name mismatch | Check **Serving** status; confirm `RAG_ENDPOINT_NAME` in `03` matches what `04`'s function calls |
 | MCP client can't list tools | Wrong workspace host, or `agent_tools` schema empty | Re-check `mcp_server_url` printed in notebook `04`; confirm the 3 functions exist via `SHOW FUNCTIONS IN insurance_rag_agent.agent_tools` |

@@ -34,7 +34,7 @@ request to the right one.
 | **Index** | Embed documents for semantic search | `insurance_rag_agent.docs.policy_documents_index` |
 | **RAG + Serve** | Retriever + FM API chat, deployed as a serving endpoint | `insurance_rag_endpoint` |
 | **Agent Tools** | RAG / report / classify as UC functions | `insurance_rag_agent.agent_tools.*` |
-| **MCP Agent** | Tool-calling agent over the managed MCP endpoint | demo transcript |
+| **MCP Agent + Serve** | Tool-calling agent over the managed MCP endpoint, deployed as a serving endpoint | `insurance_mcp_agent_endpoint` |
 
 ---
 
@@ -77,7 +77,7 @@ databricks-rag-and-mcp-agents/
 │   ├── 02_vector_search_index.ipynb
 │   ├── 03_rag_chain_and_deploy.ipynb
 │   ├── 04_agent_tools_mcp_functions.ipynb
-│   └── 05_mcp_tool_calling_agent.ipynb
+│   └── 05_mcp_agent_deploy.ipynb
 ├── docs/
 │   ├── architecture_diagram.png
 │   └── SETUP.md
@@ -113,7 +113,7 @@ See **[docs/SETUP.md](docs/SETUP.md)** for a full click-by-click setup walkthrou
 | 2 | `src/02_vector_search_index` | Create the AI Search endpoint + Delta Sync index |
 | 3 | `src/03_rag_chain_and_deploy` | Build, log, register, and deploy the RAG chain |
 | 4 | `src/04_agent_tools_mcp_functions` | Register the 3 UC functions (RAG/report/classify) |
-| 5 | `src/05_mcp_tool_calling_agent` | Run the MCP tool-calling agent demo |
+| 5 | `src/05_mcp_agent_deploy` | Build, log, register, and deploy the MCP tool-calling agent |
 
 ---
 
@@ -133,9 +133,10 @@ See **[docs/SETUP.md](docs/SETUP.md)** for a full click-by-click setup walkthrou
 - **`04_agent_tools_mcp_functions`** — registers `ask_insurance_rag`, `generate_analysis_report`,
   and `classify_customer` as Unity Catalog SQL functions, automatically exposed via the managed
   MCP endpoint `/api/2.0/mcp/functions/insurance_rag_agent/agent_tools`.
-- **`05_mcp_tool_calling_agent`** — connects a `DatabricksMCPClient`, discovers the 3 tools,
-  and runs a tool-calling loop across 3 demo prompts (one per tool), printing the full
-  transcript.
+- **`05_mcp_agent_deploy`** — defines an `mlflow.pyfunc.ChatAgent` that connects a
+  `DatabricksMCPClient`, discovers the 3 tools, and runs a tool-calling loop; smoke-tests it
+  locally, then logs, registers, and deploys it to its own Mosaic AI Model Serving endpoint
+  (`insurance_mcp_agent_endpoint`) — a real, chattable service, not a notebook demo.
 
 ---
 
@@ -162,7 +163,7 @@ search *and* the structured aggregation used by the analysis-report tool.
                    /api/2.0/mcp/functions/insurance_rag_agent/agent_tools
                                          │
                                          ▼
-                            MCP tool-calling agent (05)
+                MCP tool-calling agent (05) → insurance_mcp_agent_endpoint
 ```
 
 Putting all three UC functions in one `agent_tools` schema means Databricks' managed MCP
@@ -192,10 +193,26 @@ idiomatic way to build MCP tools on Databricks today.
 
 ---
 
-## Sample Output
+## Chat With It
 
-A single run of `05_mcp_tool_calling_agent` routes three different requests to three
-different tools:
+Both `03` and `05` deploy real Mosaic AI Model Serving endpoints, so once they're up you chat
+with this project directly in the Databricks UI — no extra code:
+
+1. Go to **Serving** in the left sidebar.
+2. Open **`insurance_rag_endpoint`** (built in `03`) and click **Open in Playground** to chat
+   with the RAG model directly — ask it anything about the insurance policy data.
+3. Open **`insurance_mcp_agent_endpoint`** (built in `05`) and click **Open in Playground** to
+   chat with the full tool-calling agent — ask it a question (routes to `ask_insurance_rag`),
+   ask for a report (routes to `generate_analysis_report`), or describe an applicant (routes
+   to `classify_customer`).
+
+**Bonus, zero-deployment way to explore the 3 tools:** in **Playground**, pick any
+tools-enabled foundation model, then **Tools > + Add tool > MCP > Managed MCP servers**, and
+enter the `insurance_rag_agent` catalog / `agent_tools` schema. Playground auto-discovers all
+3 UC functions as callable tools for that model — useful for quickly trying the tools without
+deploying the agent notebook at all.
+
+Sample exchange with `insurance_mcp_agent_endpoint`, one request per tool:
 
 ```
 === User: What do the records show about smokers in the southeast region with high charges? ===
@@ -221,15 +238,18 @@ Assistant: This applicant classifies as High Risk...
   Free Edition).
 - The deployed RAG endpoint and Foundation Model API calls use **pay-per-token, CPU serverless
   serving** — no GPU serving or provisioned throughput, which Free Edition doesn't support.
-- `agents.deploy()` and the MCP agent both draw on Free Edition's limited model-serving/app
-  quota — stop or delete the `insurance_rag_endpoint` serving endpoint after demoing if quota
-  runs low.
+- This project deploys **two** custom serving endpoints (`insurance_rag_endpoint` and
+  `insurance_mcp_agent_endpoint`) plus the one AI Search endpoint — all draw on Free Edition's
+  limited model-serving quota. Both are expected to run simultaneously for the "Chat With It"
+  flows above; if you hit a quota error, stop/delete whichever endpoint you're not actively
+  demoing.
 
 ---
 
 ## Extending the Pipeline
 
-- Add a Databricks App (Streamlit/Gradio) as a chat UI in front of the deployed RAG endpoint.
+- Playground already gives both endpoints a chat UI for free — for a fully custom, brandable
+  front end instead, add a Databricks App (Streamlit/Gradio) in front of either endpoint.
 - Swap `classify_customer`'s zero-shot `ai_classify()` for a trained classifier registered in
   Unity Catalog, compared against the `charges_tier` ground truth already in `docs.policy_documents`.
 - Add MLflow evaluation (`mlflow.genai.evaluate`) to score the RAG chain's answers against a
