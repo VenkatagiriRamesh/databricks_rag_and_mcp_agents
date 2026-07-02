@@ -56,23 +56,26 @@ and writes `insurance_rag_agent.docs.policy_documents`. Validation cell prints 5
 3. Confirm the endpoint in the UI: **Compute icon (left sidebar, if you don't see AI Search
    directly) > Vector Search**, or search "Vector Search" in the workspace search bar.
 
-## 7. Verify available models before running `03`
+## 7. Verify the chat model name before running `03`
 
 1. Go to **Serving** in the left sidebar.
 2. Confirm you can see Foundation Model API endpoints, typically including a chat model (e.g.
    `databricks-meta-llama-3-3-70b-instruct`) and an embedding model
    (`databricks-gte-large-en`, already used in step 6).
-3. Click into the chat model and open its **"Use this model"** / query-example panel and copy
-   its exact `model=` and `base_url=` values — they vary by workspace. Two patterns we've seen:
-   - **AI Gateway / Unity-Catalog-governed** (this project was verified on a workspace like
-     this): `model="insurance_rag_agent.agent_tools.meta-llama-3-3-70b-instruct_backend"`,
-     `base_url="https://<workspace-host>/ai-gateway/mlflow/v1"`.
-   - **Classic Foundation Model API**: `model="databricks-meta-llama-3-3-70b-instruct"`,
-     `base_url="https://<workspace-host>/serving-endpoints"`.
-4. In `src/03_rag_chain_and_deploy` and `src/05_mcp_agent_deploy`, set `CHAT_MODEL_ENDPOINT`
-   to the `model=` value and `MODEL_QUERY_BASE_PATH` to whatever comes after the host in the
-   `base_url=` value (e.g. `/ai-gateway/mlflow/v1` or `/serving-endpoints`) from your workspace's
-   snippet — both notebooks build the OpenAI client from these two constants.
+3. `CHAT_MODEL_ENDPOINT` in `src/03_rag_chain_and_deploy` and `src/05_mcp_agent_deploy` is set
+   to `databricks-meta-llama-3-3-70b-instruct` — the classic, workspace-wide Foundation Model
+   name, queried via `w.serving_endpoints.get_open_ai_client()`. This works even on workspaces
+   whose Serving page shows a "moved to AI Gateway" banner. Some workspaces' **"Use this
+   model"** panel instead shows a personal-looking alias like
+   `<catalog>.<schema>.<model>_backend` with a `base_url` under `/ai-gateway/mlflow/v1` —
+   **don't use that one**. That alias is scoped to whichever identity triggered its creation
+   and isn't reliably reachable from the *deployed model's* own service principal, which
+   causes deployment to fail outright with `NOT_FOUND: Dependent serving endpoint ... does
+   not exist.` if declared as a resource, or a runtime 404 if called manually.
+4. If `databricks-meta-llama-3-3-70b-instruct` genuinely isn't available in your workspace,
+   swap `CHAT_MODEL_ENDPOINT` for whichever classic Foundation Model name your Serving page
+   lists — just confirm it's a real entry on that page, not a generated alias from a "use this
+   model" code snippet.
 
 ## 8. Run `src/03_rag_chain_and_deploy`
 
@@ -155,6 +158,8 @@ demoing:
 | `agents.deploy()` hangs / errors, or `InvalidParameterValue: Scale to zero must be enabled` | Free Edition requires `scale_to_zero=True`, or model-serving quota reached | Confirm `scale_to_zero=True` is set in the deploy cell; if it's a quota error, delete an unused serving endpoint (`insurance_rag_endpoint`, `insurance_mcp_agent_endpoint`, or the Vector Search endpoint) and retry |
 | `NameError: name 'deployment_info' is not defined` | Notebook session restarted/reattached after a successful deploy, wiping in-memory variables | You don't need to redeploy — just re-run the config cell, then the final validation cell, which key off the static `RAG_ENDPOINT_NAME` / `AGENT_ENDPOINT_NAME` constants instead |
 | `OpenAIError: Missing credentials` | `w.config.token` is empty under this workspace's OAuth auth | Already handled in these notebooks via `w.config.authenticate()` / `resources=` — if you see this in your own code, use one of those instead of `.config.token` |
+| `NOT_FOUND: Dependent serving endpoint ... does not exist` (deployment itself fails) | `CHAT_MODEL_ENDPOINT` is set to a personal-looking AI-Gateway alias instead of the classic Foundation Model name | Set `CHAT_MODEL_ENDPOINT = 'databricks-meta-llama-3-3-70b-instruct'` (see step 7) — `DatabricksServingEndpoint` in `resources=` can only resolve real classic serving endpoints |
+| `openai.NotFoundError: '<model>' does not exist` at runtime (deployment succeeds, but the deployed model errors when queried) | Same cause as above, caught earlier by `resources=` validation in current code — if you see this, `CHAT_MODEL_ENDPOINT` was reverted to an alias somewhere | Re-check `CHAT_MODEL_ENDPOINT` matches step 7 exactly, re-log and redeploy |
 | `ask_insurance_rag` returns an error string | RAG endpoint not `Ready` yet, or endpoint name mismatch | Check **Serving** status; confirm `RAG_ENDPOINT_NAME` in `03` matches what `04`'s function calls |
 | MCP client can't list tools | Wrong workspace host, or `agent_tools` schema empty | Re-check `mcp_server_url` printed in notebook `04`; confirm all ten functions exist via `SHOW FUNCTIONS IN insurance_rag_agent.agent_tools` |
 | Agent picks a report without asking, or picks the wrong one | System prompt not being followed, or the prompt wasn't ambiguous enough to trigger the menu | Try a more open-ended prompt ("I need a report" rather than naming a topic); if it's still skipping the menu, double-check `SYSTEM_PROMPT` made it into the deployed model (redeploy `05` after any change) |
